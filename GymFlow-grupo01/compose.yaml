@@ -1,0 +1,40 @@
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8000:80"
+    environment:
+      MONGODB_URI: "${MONGODB_URI:-mongodb://mongo:27017}"
+      MONGODB_DB: "${MONGODB_DB:-gymflow}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
+      CACHE_TTL_SECONDS: "${CACHE_TTL_SECONDS:-60}"
+      APP_ENV: "${APP_ENV:-local}"
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+  mongo:
+    image: mongo:7.0
+    volumes:
+      - gymflow_mongo:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({ping: 1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+    # Solo accesible dentro de la red de Compose, no se publica el puerto.
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    # Redis guarda solo cache temporal y no expone puerto al host.
+volumes:
+  gymflow_mongo:

@@ -1,0 +1,17 @@
+name: Sintaxis PHP y prueba de caché
+on:
+  push:
+  pull_request:
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - name: Comprobar sintaxis
+        run: find public src scripts -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Comprobar lógica aislada de Redis
+        run: php scripts/unit-cache.php
