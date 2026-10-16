@@ -1,48 +1,66 @@
-# Arquitectura v1 — GymFlow PHP + MongoDB + Redis
+# Arquitectura v1 — GymFlow
 
-**Seguimiento 1 · Grupo 01 · 13 de octubre de 2026**
+**Seguimiento 1 · Grupo 01 · Actualización documental: 16 de octubre de 2026**
+
+## Estado actual del despliegue
+
+La aplicación publicada en https://grupo1.crnube.org/gymflow/ funciona con PHP en el servidor universitario administrado mediante Virtualmin y utiliza MongoDB Atlas para persistir los datos. La bitácora S1 documenta inicio de sesión, consulta del dashboard y registro de un socio desde la web hacia Atlas.
+
+**Redis todavía no se utiliza en este despliegue.** Su habilitación y validación en Virtualmin siguen pendientes. El repositorio contiene código de integración para caché y configuración local con Redis; S1 registra pruebas locales de conexión y MISS/HIT reportadas por el equipo. Esas pruebas locales no acreditan que Redis esté activo en el servidor universitario.
+
+## Diagrama del despliegue actual
 
 ```mermaid
 flowchart TD
     SUPER[Superadministrador] --> WEB[Navegador web]
     ADMIN[Administrador de gimnasio] --> WEB
-    WEB -->|HTTP/HTTPS, formulario y CSRF| PHP[PHP 8.3 + Apache / HTML CSS]
-    PHP --> AUTH[Sesiones, roles y autorización por gimnasioId]
-    AUTH --> SVC[GymService · operaciones de negocio]
-    SVC -->|Guardar y consultar socios, planes, membresías, pagos| MDB[(MongoDB 7 / Atlas)]
-    SVC -->|GET / SETEX TTL / DEL| CACHE[(Redis 7 · caché de panel)]
-    CACHE -.->|MISS, expiración o falla| SVC
-    MDB -->|Fuente de verdad: seis colecciones| SVC
+    WEB -->|HTTPS| PHP[PHP con PHP-FPM en Virtualmin]
+    PHP --> AUTH[Sesiones y permisos por gimnasio]
+    AUTH --> SVC[GymService: operaciones del sistema]
+    SVC -->|Lectura y escritura| MDB[(MongoDB Atlas)]
+    SVC -. Integración pendiente en servidor .-> REDIS[(Redis: caché prevista)]
 ```
 
-## Qué dato vive en cada motor y por qué
+La conexión punteada representa una integración pendiente, no un motor operativo en el despliegue actual.
 
-| Motor | Datos y función | Vida útil | Comportamiento si falla |
-| --- | --- | --- | --- |
-| **MongoDB** | Documentos **persistentes** `gimnasios`, `usuarios`, `socios`, `planes`, `membresias`, `pagos` con `ObjectId` y `Decimal128` | Persistentes en volumen o Atlas | El sistema **no declara guardada** una operación fallida; es dependencia esencial |
-| **Redis** | Copia JSON **temporal**, separada por `gimnasioId`, de los indicadores del dashboard: socios, vigencias, pagos e ingresos | TTL configurable (60 s por defecto) | PHP calcula de nuevo desde MongoDB; no se pierden datos persistentes |
+## Responsabilidad de los datos
 
-**Redis no contiene socios ni pagos como fuente de verdad. SQLite no se utiliza** por indicación del docente: no se requieren funciones offline. PHP genera las páginas web en servidor; no se necesita React, TypeScript ni Node.js.
+| Motor | Estado en servidor universitario | Datos y responsabilidad |
+| --- | --- | --- |
+| MongoDB Atlas | En uso; persistencia documentada en S1 | Seis colecciones: gimnasios, usuarios, socios, planes, membresias y pagos. Fuente definitiva de los datos. |
+| Redis | Pendiente de habilitar y probar | Caché temporal prevista de indicadores del dashboard por gimnasio; no sustituye la persistencia de MongoDB. |
 
-## Flujo de lectura y escritura
+Las referencias entre documentos usan ObjectId y los importes se almacenan con Decimal128. Las consultas operativas se delimitan por gimnasioId. SQLite no forma parte del diseño seleccionado.
 
-1. El usuario autenticado abre `?page=dashboard`. `GymService` intenta leer `gymflow:s1:dashboard:<gimnasioId>` en Redis. Un **HIT** evita recomputar los indicadores; un **MISS** consulta MongoDB, calcula el resumen y ejecuta `SETEX` con tiempo de vida.
-2. Un administrador registra o actualiza un socio, un plan o una membresía; o registra/anula un pago. **Primero** se confirma la escritura en MongoDB. **Después** se elimina `DEL` la clave Redis del gimnasio (invalidación).
-3. Si Redis no responde, la aplicación usa MongoDB y sigue mostrando el panel; los fallos de Redis se registran en el log del servidor. Cada clave incorpora el `gimnasioId` autorizado por PHP, no un dato de sesión libremente editable en el navegador.
-4. Un administrador de Hércules no puede consultar ni alterar datos de Titan. El superadministrador tiene autorización explícita para ambos.
+## Flujo actual y comportamiento previsto de la caché
 
-## Topología y conectividad
+Las altas y modificaciones se guardan en MongoDB Atlas. El código permite calcular los indicadores consultando MongoDB cuando no dispone de caché. Las pruebas de interfaz actuales no demuestran un HIT de Redis.
 
-- **Desarrollo local:** `http://localhost:8000` → contenedor PHP/Apache → servicios internos `mongo:27017` y `redis:6379` en Docker Compose. MongoDB conserva los documentos en `gymflow_mongo`. Redis es volátil; su caída no elimina datos de negocios. **Ninguno de los puertos de datos se publica al host**.
-- **Atlas (opcional):** cambiar `MONGODB_URI` fuera del repositorio por la URI privada de Atlas AWS Oregon y autorizar la IP de salida del servidor. Redis puede seguir en Docker local (o usar otro servidor Redis seguro accesible por `REDIS_URL`).
-- **Hosting en Virtualmin:** necesita PHP, extensión `mongodb`, dependencias Composer, Redis accesible y document root `public/`. Esta topología no se ha desplegado ni verificado todavía en el servidor académico.
+Cuando se habilite Redis, el código preparado contempla:
 
-## Decisiones y límites de S1
+1. Consultar la clave de indicadores del gimnasio; un HIT reutiliza el resumen.
+2. Ante MISS, expiración o indisponibilidad, calcular el resumen desde MongoDB.
+3. Guardar temporalmente el resumen con TTL de 60 segundos por defecto.
+4. Invalidar la clave después de confirmar cambios en MongoDB.
 
-- Contraseñas con hash, cookies de sesión HttpOnly, tokens CSRF y validación de referencias entre gimnasios.
-- El caché se delimita por `gimnasioId`; nunca se guardan contraseñas, tokens ni URIs en Redis. La consulta de listados detallados continúa en MongoDB.
-- Los índices únicos evitan un segundo pago efectivo para la misma membresía. La protección total contra renovaciones concurrentes requerirá serializar altas o transacciones; queda como trabajo futuro.
-- No incluye rutinas, máquinas, QR, agenda ni pago real integrado con banco.
-- La medición de Redis frente a MongoDB puede reproducirse con `scripts/cache-benchmark.php`; anotar valores **reales**, nunca inventados.
+La invalidación y la recuperación ante fallos requieren pruebas documentadas. La ausencia de Redis en el servidor no equivale por sí sola a una prueba controlada de caída y recuperación.
 
-Ver también [modelo de datos](../modelo-datos-v1.md), [pruebas](../PRUEBAS.md) y [bitácora](../seguimientos/S1.md).
+## Entornos
+
+- **Servidor universitario:** PHP 8.3 con PHP-FPM, Composer y extensión MongoDB; datos en Atlas, base `gymflow_pruebas`, según S1. Código y configuración privada fuera de la raíz web; entrada pública bajo `/gymflow/`. Redis pendiente.
+- **Local:** Docker Compose configura PHP/Apache, MongoDB y Redis. La bitácora conserva resultados locales de conexión y caché reportados por el equipo. No deben confundirse con resultados del servidor.
+- **Configuración Atlas:** URI en `.env` privado. El enunciado requiere AWS Oregon y acceso limitado a la IP autorizada del servidor; verificar la configuración efectiva sin publicar credenciales.
+
+## Diseño de claves Redis pendiente de adaptar
+
+El código actual usa `gymflow:s1:dashboard:<gimnasioId>` y valores JSON con TTL configurable. Si se utiliza Redis compartido del curso, el prefijo debe adaptarse antes de usarlo a `grupo1:`, por ejemplo `grupo1:gymflow:dashboard:<gimnasioId>`. Esta revisión documental no modifica ese código.
+
+## Controles y límites
+
+- El código incorpora hashes de contraseñas, sesiones, tokens CSRF y comprobación de referencias por gimnasio; la prueba de acceso cruzado entre gimnasios sigue pendiente.
+- Se definen índices, incluidos índices únicos para evitar duplicados. La concurrencia de renovaciones requiere validación adicional.
+- El plan incluye gestión de gimnasios, usuarios, socios, planes, membresías y pagos manuales. No incluye pagos bancarios automáticos, rutinas, agenda ni QR.
+- `scripts/cache-benchmark.php` requiere Redis operativo. No hay resultados de rendimiento del servidor acreditados por esta revisión.
+- Esta actualización corrige el estado del despliegue; no declara completados los requisitos posteriores de Redis, agregaciones MongoDB ni mediciones.
+
+Ver [modelo de datos](../modelo-datos-v1.md), [plan de pruebas](../PRUEBAS.md) y [bitácora S1](../seguimientos/S1.md).
