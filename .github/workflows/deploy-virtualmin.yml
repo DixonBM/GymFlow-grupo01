@@ -1,0 +1,88 @@
+
+name: Deploy GymFlow Virtualmin
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gymflow-production
+  cancel-in-progress: false
+
+jobs:
+  validar:
+    name: Validar PHP
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mongodb
+          tools: composer:v2
+
+      - name: Validar sintaxis PHP
+        run: |
+          find src public scripts \
+            -type f -name '*.php' -print0 |
+            xargs -0 -r -n 1 php -l
+
+      - name: Instalar dependencias
+        run: |
+          composer install \
+            --no-dev \
+            --prefer-dist \
+            --no-interaction
+
+  desplegar:
+    name: Desplegar en Virtualmin
+    needs: validar
+    runs-on: ubuntu-latest
+
+    environment:
+      name: gymflow-production
+
+    steps:
+      - name: Preparar SSH seguro
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+
+          install -m 700 -d ~/.ssh
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" \
+            > ~/.ssh/gymflow_actions
+
+          chmod 600 ~/.ssh/gymflow_actions
+
+          printf '%s\n' "$SSH_KNOWN_HOSTS" \
+            > ~/.ssh/known_hosts
+
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Ejecutar despliegue remoto
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -euo pipefail
+
+          ssh -T \
+            -i ~/.ssh/gymflow_actions \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
+            "$SSH_USER@$SSH_HOST" \
+            deploy
