@@ -2,6 +2,9 @@
 name: Deploy GymFlow Virtualmin
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
