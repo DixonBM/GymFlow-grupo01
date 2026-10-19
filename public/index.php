@@ -150,18 +150,33 @@ $gymsNames = []; foreach ($gymList as $g) $gymsNames[(string)$g['_id']] = $g['no
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title><?= \GymFlow\e($title) ?> · GymFlow</title><link rel="stylesheet" href="/assets/style.css"></head>
 <body>
 <?php if (!$user): ?>
-<div class="login-screen"><div class="brand big">
-  <img src="assets/img/logo-gymflow.png"
-       alt="GymFlow"
-       class="gymflow-logo">
-</div>
- <div class="brand big">
-  <img src="assets/img/logo-gymflow.png"
-       alt="GymFlow"
-       class="gymflow-logo">
-</div>
- <h1>La gestión de tu gimnasio,<br><em>en un solo lugar.</em></h1><p>Controlá socios, planes, membresías y pagos. Un sistema para administrar múltiples gimnasios de forma segura.</p><div class="hero-chips"><span>PHP 8.2+</span><span>MongoDB</span><span>Redis</span><span>Multi-gimnasio</span></div></div>
- <main class="login-panel"><div class="login-box"><div class="eyebrow">PANEL ADMINISTRATIVO</div><h2>Bienvenido de nuevo</h2><p class="muted">Ingresá tus credenciales para continuar.</p>
+<div class="login-screen">
+  <div class="login-hero">
+    <div class="brand big">
+      <img src="assets/img/logo-gymflow.png"
+           alt="GymFlow"
+           class="gymflow-logo">
+    </div>
+
+    <h1>
+      La gestión de tu gimnasio,<br>
+      <em>en un solo lugar.</em>
+    </h1>
+
+    <p>
+      Controlá socios, planes, membresías y pagos.
+      Un sistema para administrar múltiples gimnasios de forma segura.
+    </p>
+
+    <div class="hero-chips">
+      <span>PHP 8.2+</span>
+      <span>MongoDB</span>
+      <span>Redis</span>
+      <span>Multi-gimnasio</span>
+    </div>
+ </div>
+<main class="login-panel">
+  <div class="login-box"><div class="eyebrow">PANEL ADMINISTRATIVO</div><h2>Bienvenido de nuevo</h2><p class="muted">Ingresá tus credenciales para continuar.</p>
  <?php if ($error): ?><div class="alert error"><?= \GymFlow\e($error) ?></div><?php endif; ?>
  <?php if ($notice): ?><div class="alert success"><?= \GymFlow\e($notice) ?></div><?php endif; ?>
  <form method="post" class="stack"><?php \GymFlow\hiddenAction('login', $csrf); \GymFlow\field('Correo electrónico', 'correo', '', 'email', 'required autocomplete="username"'); \GymFlow\field('Contraseña', 'password', '', 'password', 'required autocomplete="current-password"'); ?><button class="btn primary wide">Iniciar sesión <span>→</span></button></form>
