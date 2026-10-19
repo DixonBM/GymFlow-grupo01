@@ -150,8 +150,17 @@ $gymsNames = []; foreach ($gymList as $g) $gymsNames[(string)$g['_id']] = $g['no
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title><?= \GymFlow\e($title) ?> · GymFlow</title><link rel="stylesheet" href="/assets/style.css"></head>
 <body>
 <?php if (!$user): ?>
-<div class="login-screen">
- <div class="login-hero"><div class="brand big"><span class="brand-logo">G</span><span>Gym<span class="brand-light">Flow</span></span></div><h1>La gestión de tu gimnasio,<br><em>en un solo lugar.</em></h1><p>Controlá socios, planes, membresías y pagos. Un sistema para administrar múltiples gimnasios de forma segura.</p><div class="hero-chips"><span>PHP 8.2+</span><span>MongoDB</span><span>Redis</span><span>Multi-gimnasio</span></div></div>
+<div class="login-screen"><div class="brand big">
+  <img src="assets/img/logo-gymflow.png"
+       alt="GymFlow"
+       class="gymflow-logo">
+</div>
+ <div class="brand big">
+  <img src="assets/img/logo-gymflow.png"
+       alt="GymFlow"
+       class="gymflow-logo">
+</div>
+ <h1>La gestión de tu gimnasio,<br><em>en un solo lugar.</em></h1><p>Controlá socios, planes, membresías y pagos. Un sistema para administrar múltiples gimnasios de forma segura.</p><div class="hero-chips"><span>PHP 8.2+</span><span>MongoDB</span><span>Redis</span><span>Multi-gimnasio</span></div></div>
  <main class="login-panel"><div class="login-box"><div class="eyebrow">PANEL ADMINISTRATIVO</div><h2>Bienvenido de nuevo</h2><p class="muted">Ingresá tus credenciales para continuar.</p>
  <?php if ($error): ?><div class="alert error"><?= \GymFlow\e($error) ?></div><?php endif; ?>
  <?php if ($notice): ?><div class="alert success"><?= \GymFlow\e($notice) ?></div><?php endif; ?>
@@ -160,7 +169,13 @@ $gymsNames = []; foreach ($gymList as $g) $gymsNames[(string)$g['_id']] = $g['no
 </div>
 <?php else: ?>
 <div class="shell">
- <aside class="sidebar"><a class="brand" href="<?= \GymFlow\e(\GymFlow\href('dashboard', $gymId)) ?>"><span class="brand-logo">G</span>Gym<span class="brand-light">Flow</span></a><div class="side-label">ESPACIO DE TRABAJO</div>
+ <aside class="sidebar"><a class="brand"
+   href="<?= \GymFlow\e(\GymFlow\href('dashboard', $gymId)) ?>">
+  <img src="assets/img/logo-gymflow.png"
+       alt="GymFlow"
+       class="gymflow-logo">
+</a>
+ <div class="side-label">ESPACIO DE TRABAJO</div>
  <nav class="nav"><?php foreach($nav as $key=>$item): ?><a href="<?= \GymFlow\e(\GymFlow\href($key,$gymId)) ?>" class="nav-item <?= $key===$page?'active':'' ?>"><span class="nav-symbol"><?= \GymFlow\e($item['icon']) ?></span><?= \GymFlow\e($item['title']) ?></a><?php endforeach; ?></nav>
  <div class="sidebar-footer"><div class="user-avatar"><?= \GymFlow\e(strtoupper(substr($user['nombre'],0,1))) ?></div><div class="user-desc"><strong><?= \GymFlow\e($user['nombre']) ?></strong><small><?= \GymFlow\e($user['rol']==='superadmin'?'Superadministrador':'Administrador') ?></small></div></div>
  <form method="post" class="logout"><?php \GymFlow\hiddenAction('logout', $csrf, $gymId); ?><button>↪ Cerrar sesión</button></form>
