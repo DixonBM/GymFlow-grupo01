@@ -1,7 +1,11 @@
 # GymFlow · Gestión de gimnasios · Grupo 01
+Proyecto Final Open Source · Tópicos Avanzados de Bases de Datos · UNA
 
-**Proyecto Final Open Source · Tópicos Avanzados de Bases de Datos · UNA**  
-**Seguimiento 1 · Semana 13 · Versión propuesta `v0.1.0`**
+Las entregas y versiones están disponibles en
+[Releases](https://github.com/DixonBM/GymFlow-grupo01/releases).
+
+Las bitácoras se encuentran en
+[docs/seguimientos](docs/seguimientos/).
 
 **Repositorio previsto:** https://github.com/DixonBM/GymFlow-grupo01
 
