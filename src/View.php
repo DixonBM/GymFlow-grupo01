@@ -9,7 +9,7 @@ function e(mixed $value): string { return htmlspecialchars((string)($value ?? ''
 function money(mixed $m): string { return '₡' . number_format((float)(string)($m ?? 0), 2, ',', '.'); }
 function shortDate(mixed $d): string { return $d instanceof UTCDateTime ? Bootstrap::dateString($d) : ''; }
 function stateBadge(string $s): string {
-    $name = match($s) { 'activo','registrado','vigente','pagada' => 'good', 'inactivo','vencida','anulado','cancelada' => 'bad', default => 'warn' };
+    $name = match($s) { 'activo','registrado','vigente','pagada','operativa' => 'good', 'inactivo','vencida','anulado','cancelada','fuera_de_servicio' => 'bad', default => 'warn' };
     return '<span class="badge ' . $name . '">' . e(ucfirst(str_replace('_', ' ', $s))) . '</span>';
 }
 function field(string $label, string $key, mixed $value = '', string $type = 'text', string $other = ''): void {

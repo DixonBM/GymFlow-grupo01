@@ -1,6 +1,6 @@
 FROM composer:2 AS dependencies
 WORKDIR /app
-COPY composer.json ./
+COPY composer.json composer.lock ./
 RUN composer install --no-interaction --no-dev --prefer-dist --ignore-platform-req=ext-mongodb --no-scripts --no-progress
 
 FROM php:8.3-apache
