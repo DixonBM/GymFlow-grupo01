@@ -13,3 +13,12 @@
 .brand.big .gymflow-logo {
   width: 240px;
 }
+/* Módulo Máquinas */
+.machine-search{padding:18px;display:flex;align-items:end;flex-wrap:wrap;gap:12px}
+.machine-search .field{flex:1 1 170px}
+.machine-search .field:first-of-type{flex:2 1 270px}
+.machine-search input,.machine-search select{background:#fafcfd;border:1px solid #dce5ec;border-radius:8px;color:#213d50;padding:11px 12px;min-width:0;width:100%}
+.machine-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.machine-actions form{margin:0}
+/* Cuenta nueva por invitación */
+.login-box form .field input[type="password"] {min-height:43px}

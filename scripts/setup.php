@@ -5,6 +5,7 @@ use GymFlow\Bootstrap;
 use MongoDB\BSON\ObjectId;
 
 require dirname(__DIR__).'/src/Bootstrap.php';
+require dirname(__DIR__).'/src/MachineSchema.php';
 require dirname(__DIR__).'/vendor/autoload.php';
 Bootstrap::env(dirname(__DIR__).'/.env');
 date_default_timezone_set('America/Costa_Rica');
@@ -14,7 +15,7 @@ echo "GymFlow · MongoDB OK · base: ".(getenv('MONGODB_DB')?:'gymflow').PHP_EOL
 
 $schemas = [
  'gimnasios' => ['req'=>['nombreComercial','contacto','estado','fechaRegistro'], 'props'=>['nombreComercial'=>['bsonType'=>'string'], 'contacto'=>['bsonType'=>'object'], 'estado'=>['enum'=>['pendiente','activo','inactivo']], 'fechaRegistro'=>['bsonType'=>'date']]],
- 'usuarios' => ['req'=>['gimnasioId','nombre','correo','passwordHash','rol','estado'], 'props'=>['gimnasioId'=>['bsonType'=>['objectId','null']], 'nombre'=>['bsonType'=>'string'],'correo'=>['bsonType'=>'string'],'passwordHash'=>['bsonType'=>'string'],'rol'=>['enum'=>['superadmin','administrador']], 'estado'=>['enum'=>['activo','inactivo']]]],
+ 'usuarios' => ['req'=>['gimnasioId','nombre','correo','passwordHash','rol','estado'], 'props'=>['gimnasioId'=>['bsonType'=>['objectId','null']], 'nombre'=>['bsonType'=>'string'],'correo'=>['bsonType'=>'string'],'passwordHash'=>['bsonType'=>'string'],'rol'=>['enum'=>['superadmin','administrador']], 'estado'=>['enum'=>['activo','inactivo','pendiente']]]],
  'socios' => ['req'=>['gimnasioId','identificacion','nombreCompleto','fechaRegistro','estado'], 'props'=>['gimnasioId'=>['bsonType'=>'objectId'],'identificacion'=>['bsonType'=>'string'],'nombreCompleto'=>['bsonType'=>'string'], 'fechaNacimiento'=>['bsonType'=>'string'], 'fechaRegistro'=>['bsonType'=>'date'], 'estado'=>['enum'=>['activo','inactivo']]]],
  'planes' => ['req'=>['gimnasioId','nombre','duracionDias','precio','moneda','estado'], 'props'=>['gimnasioId'=>['bsonType'=>'objectId'], 'nombre'=>['bsonType'=>'string'], 'duracionDias'=>['bsonType'=>'int'], 'precio'=>['bsonType'=>'decimal'], 'moneda'=>['enum'=>['CRC']], 'estado'=>['enum'=>['activo','inactivo']]]],
  'membresias' => ['req'=>['gimnasioId','socioId','planId','condicionesContratadas','fechaInicio','fechaFin','cancelada','fechaCreacion'], 'props'=>['gimnasioId'=>['bsonType'=>'objectId'],'socioId'=>['bsonType'=>'objectId'],'planId'=>['bsonType'=>'objectId'], 'condicionesContratadas'=>['bsonType'=>'object'], 'fechaInicio'=>['bsonType'=>'date'],'fechaFin'=>['bsonType'=>'date'], 'cancelada'=>['bsonType'=>'bool'], 'fechaCreacion'=>['bsonType'=>'date']]],
@@ -39,6 +40,7 @@ $db->pagos->createIndex(['gimnasioId'=>1,'fechaPago'=>1],['name'=>'pagos_fecha']
 $db->pagos->createIndex(['gimnasioId'=>1,'membresiaId'=>1],['name'=>'pagos_historial']);
 $db->pagos->createIndex(['gimnasioId'=>1,'claveOperacion'=>1],['unique'=>true,'name'=>'uniq_operacion']);
 $db->pagos->createIndex(['gimnasioId'=>1,'membresiaId'=>1],['unique'=>true,'partialFilterExpression'=>['estado'=>'registrado'],'name'=>'uniq_pago_efectivo']);
+\GymFlow\MachineSchema::ensure($db);
 echo "Indices creados/verificados.\n";
 
 if (!in_array('--seed',$argv,true)) {
