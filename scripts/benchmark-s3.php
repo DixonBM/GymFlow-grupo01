@@ -567,7 +567,8 @@ try {
     $lines[] = 'No se modificaron ni eliminaron datos durante las pruebas.';
     $lines[] = '';
 
-    $reportPath = $root . '/docs/mediciones-S3.md';
+    $reportPath = getenv('BENCHMARK_REPORT_PATH')
+    ?: $root . '/docs/mediciones-S3.md';
 
     if (!is_dir(dirname($reportPath))) {
         mkdir(dirname($reportPath), 0775, true);
