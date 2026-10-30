@@ -73,3 +73,65 @@ Para cada captura confirmar: fecha, ambiente, dato utilizado, mensaje o resultad
 No se añaden pagos, anulaciones ni persistencia tras reiniciar sesión como pruebas de S3 porque no aparecen en el inventario entregado. Sí se incorpora la conservación de datos tras recargar, confirmada por la responsable. Las pruebas de S2 conservan su propio registro.
 
 Se utilizó IA para organizar la documentación a partir del inventario aportado. La ejecución y validación de resultados corresponden a los integrantes del grupo.
+
+## 5. Anexo técnico — Indisponibilidad y recuperación de Redis (Issue #11)
+
+**Responsable de esta prueba técnica:** José Sequeira.  
+**Fecha de ejecución:** noche del 29 al 30 de octubre de 2026 (hora de Costa Rica).  
+**Entorno:** Windows, Docker Compose y aplicación local (`localhost:8000`), con MongoDB como almacenamiento principal y Redis como caché secundaria.  
+**Gimnasio evaluado:** Hércules Demo.  
+**Issue:** [#11 — Manejo de fallos cuando Redis no responde](https://github.com/DixonBM/GymFlow-grupo01/issues/11).  
+**Alcance:** esta adenda complementa la sección 3 con pruebas realizadas posteriormente por otro integrante. Se preservan los resultados originales atribuidos a María, incluidos sus casos pendientes. No se detuvo el servicio Redis del servidor universitario ni se modificó el entorno de Virtualmin.
+
+### 5.1 Objetivo y procedimiento
+
+Comprobar que una interrupción de Redis no impide visualizar el dashboard de GymFlow cuando MongoDB continúa funcionando; luego restablecer Redis y observar las transiciones de caché `MISS` y `HIT`.
+
+1. Con el entorno Docker operativo, se ejecutó la prueba unitaria `docker compose exec app php scripts/unit-cache.php`. El script simula fallos de `PING`, lectura, escritura e invalidación y termina con un resultado `OK`, sin propagar excepciones fatales.
+2. Se consultó el dashboard del gimnasio Hércules Demo antes de detener Redis. Se registraron los indicadores iniciales y el estado `MISS`.
+3. Se simuló la indisponibilidad del motor de caché con `docker compose stop redis`, exclusivamente en Docker local.
+4. Se volvió a consultar el dashboard. La interfaz siguió accesible y mostró `Origen del resumen: no disponible`.
+5. Se consultó **Conexión BD** durante la caída. La pantalla confirmó `MongoDB: conectado` y `Redis: no disponible (modo directo MongoDB)`; también mostró un TTL de caché de 60 segundos.
+6. Se restauró Redis mediante `docker compose start redis` y se consultó nuevamente el dashboard. Las capturas muestran un primer estado `MISS` y después un estado `HIT`.
+
+**Nota de ejecución:** el resultado del comando `docker compose exec redis redis-cli ping` (`PONG`) no aparece entre las seis capturas recibidas. La recuperación de lectura de caché se acredita visualmente mediante `MISS` y `HIT`, pero para documentar también el `PING` sería necesario adjuntar su salida.
+
+### 5.2 Evidencias obtenidas
+
+Las rutas siguientes suponen que las seis capturas se guardarán con estos nombres dentro de `docs/evidencias/S3/` antes de crear el commit.
+
+| Evidencia | Archivo | Resultado que demuestra |
+| --- | --- | --- |
+| R01 | [16-redis-prueba-unitaria.png](evidencias/S3/16-redis-prueba-unitaria.png) | Prueba simulada `MISS` / `HIT` / invalidación / fallos sin excepciones fatales; los mensajes `sin conexión` son esperados. |
+| R02 | [17-redis-dashboard-antes-caida.png](evidencias/S3/17-redis-dashboard-antes-caida.png) | Estado inicial de Hércules Demo: `MISS` y cuatro indicadores visibles. |
+| R03 | [18-redis-dashboard-sin-conexion.png](evidencias/S3/18-redis-dashboard-sin-conexion.png) | Dashboard visible durante la caída y mensaje `Origen del resumen: no disponible`. |
+| R04 | [19-redis-caido-mongodb-conectado.png](evidencias/S3/19-redis-caido-mongodb-conectado.png) | `MongoDB: conectado` y `Redis: no disponible (modo directo MongoDB)`. |
+| R05 | [20-redis-recuperado-miss.png](evidencias/S3/20-redis-recuperado-miss.png) | Tras restablecer Redis, el origen del resumen muestra `MISS`. |
+| R06 | [21-redis-recuperado-hit.png](evidencias/S3/21-redis-recuperado-hit.png) | La siguiente consulta muestra `HIT`, indicando lectura de la caché. |
+
+### 5.3 Valores de referencia y comprobaciones
+
+| Indicador de Hércules Demo | Valor inicial confirmado | Valor durante caída | Valor después de recuperación |
+| --- | ---: | --- | --- |
+| Socios registrados | 6 | Pendiente de evidencia visual completa | Pendiente de evidencia visual completa |
+| Socios habilitados | 1 | Pendiente de evidencia visual completa | Pendiente de evidencia visual completa |
+| Membresías habilitadas | 1 | Pendiente de evidencia visual completa | Pendiente de evidencia visual completa |
+| Próximas a vencer | 0 | Pendiente de evidencia visual completa | Pendiente de evidencia visual completa |
+
+Los recortes del dashboard durante la caída y tras la recuperación permiten confirmar los estados de caché, pero **no muestran completos los cuatro indicadores**. Por tanto, todavía no es posible acreditar únicamente con estas imágenes que los valores numéricos permanecieron idénticos en los tres momentos. Tampoco se registró una operación de escritura de datos durante la caída; no se afirma que se probó el guardado sin Redis.
+
+### 5.4 Estado de los criterios relacionados
+
+| Criterio / caso | Conclusión basada en estas evidencias |
+| --- | --- |
+| Issue #11 — Simular caída local de Redis | Ejecutado en Docker local; estado `no disponible` observado. |
+| Issue #11 — Dashboard continúa consultando MongoDB | La pantalla sigue accesible y **Conexión BD** informa MongoDB conectado; falta imagen completa de indicadores durante la interrupción. |
+| Issue #11 — Registrar estado mostrado | Cumplido: `Origen del resumen: no disponible` y `Redis: no disponible (modo directo MongoDB)`. |
+| Issue #11 — Recuperación de la caché | Estados `MISS` y `HIT` observados después de la restauración; salida `PONG` no adjunta. |
+| Issue #11 — Indicadores actualizados | Valores iniciales registrados; falta cotejo numérico completo durante y después. |
+| S3-C01 — Estado de conexión | Acreditado durante la caída **en Docker local** por R04. No modifica lo reportado originalmente para el servidor. |
+| S3-C02 — Lecturas `MISS` y `HIT` | Acreditadas tras restauración; **no** se midió específicamente la expiración del TTL. |
+| S3-C03 — Invalidación por crear socio | No ejecutada como parte de este anexo. |
+| S3-F01 — Caída de Redis | Continuidad de consulta observada; persistencia de escrituras durante la caída no comprobada. |
+| S3-F02 — Recuperación de Redis | Estados `MISS` / `HIT` observados; verificar los valores completos antes de cerrar. |
+| S3-F03 — Caída de MongoDB | No ejecutada; sigue pendiente en su caso independiente. |
