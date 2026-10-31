@@ -51,6 +51,8 @@ $report = [];
 $editing = null;
 $redisOK = false;
 $notice = $_SESSION['flash'] ?? '';
+$renewing = null;
+$renewStartDate = date('Y-m-d');
 unset($_SESSION['flash']);
 
 try {
@@ -110,6 +112,7 @@ $machineService = new \GymFlow\MachineService($db);
             case 'save-machine': $machineService->save($withGym(), $_POST); $to = 'maquinas'; break;
             case 'delete-machine': $machineService->delete($withGym(), (string)($_POST['id'] ?? '')); $to = 'maquinas'; break;
             case 'create-membership': $service->createMembership($withGym(), $_POST); $to = 'membresias'; break;
+            case 'renew-membership': $service->renewMembershipAndPay($withGym(), $user, $_POST); $to = 'membresias'; break;
             case 'cancel-membership': $service->cancelMembership($withGym(), (string)($_POST['id'] ?? '')); $to = 'membresias'; break;
             case 'create-payment': $service->pay($withGym(), $user, $_POST); $to = 'pagos'; break;
             case 'annul-payment': $service->annulPayment($withGym(), $user, $_POST); $to = 'pagos'; break;
@@ -148,6 +151,45 @@ $machineService = new \GymFlow\MachineService($db);
             elseif ($page === 'usuarios' && $user['rol'] === 'superadmin') $editing = $db->usuarios->findOne(['_id'=>Bootstrap::id($id)], ['projection'=>['passwordHash'=>0]]);
             if (!$editing) throw new DomainError('Registro para editar no encontrado.');
         }
+        // Cargar la membresía seleccionada para iniciar una renovación.
+        if ($page === 'membresias' && (string)($_GET['renew'] ?? '') !== '') {
+            $renewId = (string)$_GET['renew'];
+            $renewing = $service->scoped(
+                'membresias',
+                $service->requireGym($gym),
+                $renewId
+            );
+
+            if (!empty($renewing['cancelada'])) {
+                throw new DomainError('No se puede renovar una membresía cancelada.');
+            }
+
+            // Solo se permite renovar desde la membresía más reciente del socio.
+            $latest = $db->membresias->findOne(
+                [
+                    'gimnasioId' => $gym,
+                    'socioId' => $renewing['socioId'],
+                    'cancelada' => false
+                ],
+                [
+                    'sort' => [
+                        'fechaFin' => -1,
+                        'fechaCreacion' => -1
+                    ]
+                ]
+            );
+
+            if (!$latest || (string)$latest['_id'] !== (string)$renewing['_id']) {
+                throw new DomainError('La renovación debe iniciarse desde la membresía más reciente del socio.');
+            }
+
+            // Si la membresía todavía está vigente o es futura, la renovación
+            // comienza al finalizar ese período. Si ya venció, inicia hoy.
+            $previousEnd = Bootstrap::dateString($renewing['fechaFin']);
+            $today = date('Y-m-d');
+            $renewStartDate = $previousEnd > $today ? $previousEnd : $today;
+        }
+
         if ($page === 'conexion') { $service->ping(); $redisOK = $service->redisHealthy(); }
     }
 } catch (DomainError $ex) { $error = $ex->getMessage(); }
@@ -180,6 +222,35 @@ $names = []; foreach ($socios as $s) $names[(string)$s['_id']] = (string)$s['nom
 $planNames = []; foreach ($plans as $p) $planNames[(string)$p['_id']] = (string)$p['nombre'];
 $paidMap = []; foreach ($payments as $p) if ($p['estado']==='registrado') $paidMap[(string)$p['membresiaId']] = true;
 $membershipNames = []; foreach ($members as $m) $membershipNames[(string)$m['_id']] = ($names[(string)$m['socioId']] ?? 'Socio') . ' · ' . ($m['condicionesContratadas']['nombrePlan'] ?? 'Plan') . ' (' . \GymFlow\shortDate($m['fechaInicio']) . ')';
+
+// Identificar la membresía más reciente de cada socio para mostrar Renovar
+// únicamente en el registro correcto.
+$latestMembershipIds = [];
+$latestMembershipEnds = [];
+$latestMembershipCreated = [];
+foreach ($members as $member) {
+    if (!empty($member['cancelada'])) continue;
+
+    $socioKey = (string)$member['socioId'];
+    $endTimestamp = $member['fechaFin']->toDateTime()->getTimestamp();
+    $createdTimestamp = isset($member['fechaCreacion'])
+        ? $member['fechaCreacion']->toDateTime()->getTimestamp()
+        : 0;
+
+    if (
+        !isset($latestMembershipEnds[$socioKey]) ||
+        $endTimestamp > $latestMembershipEnds[$socioKey] ||
+        (
+            $endTimestamp === $latestMembershipEnds[$socioKey] &&
+            $createdTimestamp > $latestMembershipCreated[$socioKey]
+        )
+    ) {
+        $latestMembershipIds[$socioKey] = (string)$member['_id'];
+        $latestMembershipEnds[$socioKey] = $endTimestamp;
+        $latestMembershipCreated[$socioKey] = $createdTimestamp;
+    }
+}
+
 $gymsNames = []; foreach ($gymList as $g) $gymsNames[(string)$g['_id']] = $g['nombreComercial'];
 ?>
 <!doctype html>
@@ -274,7 +345,217 @@ $gymsNames = []; foreach ($gymList as $g) $gymsNames[(string)$g['_id']] = $g['no
  <div class="page-intro"><div><h2>Planes y precios</h2><p>Los precios acordados quedan conservados al contratar una membresía.</p></div><span class="counter"><?= count($plans) ?> planes</span></div>
  <div class="two-col"><section class="card"><div class="card-heading"><h3><?= $editing?'Editar plan':'Nuevo plan' ?></h3><?php if($editing): ?><a href="<?= \GymFlow\e(\GymFlow\href('planes',$gymId)) ?>">Nuevo +</a><?php endif; ?></div><form method="post" class="stack"><?php \GymFlow\hiddenAction('save-plan',$csrf,$gymId); ?><input type="hidden" name="id" value="<?= \GymFlow\e((string)($editing['_id']??'')) ?>"><?php \GymFlow\field('Nombre del plan *','nombre',$editing['nombre']??'','text','required'); \GymFlow\field('Duración en días *','duracionDias',$editing['duracionDias']??30,'number','required min="1" max="3650"'); \GymFlow\field('Precio en colones *','precio',(string)($editing['precio']??'15000.00'),'number','required min="0.01" step="0.01"'); \GymFlow\choice('Estado','estado',['activo'=>'Activo','inactivo'=>'Inactivo'],$editing['estado']??'activo'); \GymFlow\area('Descripción','descripcion',$editing['descripcion']??''); ?><button class="btn primary">Guardar plan</button></form></section><section class="card full-table"><div class="card-heading"><h3>Planes disponibles</h3></div><div class="tablewrap"><table><thead><tr><th>Nombre</th><th>Duración</th><th>Precio</th><th>Estado</th><th></th></tr></thead><tbody><?php foreach($plans as $p): ?><tr><td><strong><?= \GymFlow\e($p['nombre']) ?></strong><div class="subtext"><?= \GymFlow\e($p['descripcion']??'') ?></div></td><td><?= \GymFlow\e($p['duracionDias']) ?> días</td><td><?= \GymFlow\money($p['precio']) ?></td><td><?= \GymFlow\stateBadge($p['estado']) ?></td><td><a class="action-link" href="<?= \GymFlow\e(\GymFlow\href('planes',$gymId,['edit'=>(string)$p['_id']])) ?>">Editar</a></td></tr><?php endforeach; ?><?php if (!$plans): ?><tr><td colspan="5" class="empty">No hay planes todavía.</td></tr><?php endif; ?></tbody></table></div></section></div>
  <?php elseif ($page === 'membresias'): ?>
- <div class="page-intro"><div><h2>Control de membresías</h2><p>Vigencia calculada por fechas y pago registrado.</p></div><div class="machine-actions"><a class="btn" href="<?= \GymFlow\e(\GymFlow\href('pagos', $gymId)) ?>">Ver pagos de membresías</a><span class="counter"><?= count($members) ?> contrataciones</span></div></div><div class="two-col"><section class="card"><div class="card-heading"><h3>Contratar / renovar</h3></div><form method="post" class="stack"><?php \GymFlow\hiddenAction('create-membership',$csrf,$gymId); ?><?php \GymFlow\choice('Socio *','socioId', array_combine(array_map(fn($s)=>(string)$s['_id'],array_filter($socios,fn($s)=>$s['estado']==='activo')),array_map(fn($s)=>$s['nombreCompleto'],array_filter($socios,fn($s)=>$s['estado']==='activo')))?:[]); \GymFlow\choice('Plan *','planId', array_combine(array_map(fn($p)=>(string)$p['_id'],array_filter($plans,fn($p)=>$p['estado']==='activo')),array_map(fn($p)=>$p['nombre'].' — '.\GymFlow\money($p['precio']),array_filter($plans,fn($p)=>$p['estado']==='activo')))?:[]); \GymFlow\field('Fecha inicial *','fechaInicio',date('Y-m-d'),'date','required'); ?><label class="check"><input type="checkbox" name="renovar" value="1"> Renovar después del último período vigente o futuro</label><?php \GymFlow\area('Observaciones','observaciones'); ?><p class="hint">La fecha final se calcula sumando los días del plan; no se permiten períodos superpuestos.</p><button class="btn primary" <?= !$socios||!$plans?'disabled':'' ?>>Crear membresía</button></form></section><section class="card full-table"><div class="card-heading"><h3>Historial</h3></div><div class="tablewrap"><table><thead><tr><th>Socio / Plan</th><th>Inicio</th><th>Fin</th><th>Precio</th><th>Estado</th><th></th></tr></thead><tbody><?php foreach($members as $m): ?><tr><td><strong><?= \GymFlow\e($names[(string)$m['socioId']] ?? 'Socio') ?></strong><div class="subtext"><?= \GymFlow\e($m['condicionesContratadas']['nombrePlan']) ?></div></td><td><?= \GymFlow\e(\GymFlow\shortDate($m['fechaInicio'])) ?></td><td><?= \GymFlow\e(\GymFlow\shortDate($m['fechaFin'])) ?></td><td><?= \GymFlow\money($m['condicionesContratadas']['precio']) ?></td><td><?= \GymFlow\stateBadge(\GymFlow\memberState($m,isset($paidMap[(string)$m['_id']]))) ?></td><td><?php if(!$m['cancelada']): ?><form method="post" class="inline-form"><?php \GymFlow\hiddenAction('cancel-membership',$csrf,$gymId); ?><input type="hidden" name="id" value="<?= \GymFlow\e((string)$m['_id']) ?>"><button class="danger-link" title="Conserva el historial">Cancelar</button></form><?php endif; ?></td></tr><?php endforeach; ?><?php if (!$members): ?><tr><td colspan="6" class="empty">Todavía no hay membresías.</td></tr><?php endif; ?></tbody></table></div></section></div>
+  <div class="page-intro">
+    <div>
+      <h2>Control de membresías</h2>
+      <p>Vigencia, renovaciones e historial de pagos.</p>
+    </div>
+    <div class="machine-actions">
+      <a class="btn" href="<?= \GymFlow\e(\GymFlow\href('pagos', $gymId)) ?>">Ver pagos de membresías</a>
+      <span class="counter"><?= count($members) ?> contrataciones</span>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <section class="card">
+      <?php if ($renewing): ?>
+        <?php
+          $renewPlanOptions = [];
+          foreach ($plans as $planOption) {
+              if (($planOption['estado'] ?? '') !== 'activo') continue;
+              $renewPlanOptions[(string)$planOption['_id']] =
+                  $planOption['nombre'] . ' — ' . \GymFlow\money($planOption['precio']) .
+                  ' · ' . $planOption['duracionDias'] . ' días';
+          }
+
+          $previousPlanId = (string)$renewing['planId'];
+          $selectedRenewPlan = array_key_exists($previousPlanId, $renewPlanOptions)
+              ? $previousPlanId
+              : (string)(array_key_first($renewPlanOptions) ?? '');
+        ?>
+
+        <div class="card-heading">
+          <h3>Renovar membresía</h3>
+          <a href="<?= \GymFlow\e(\GymFlow\href('membresias', $gymId)) ?>">Cancelar</a>
+        </div>
+
+        <form method="post" class="stack">
+          <?php \GymFlow\hiddenAction('renew-membership', $csrf, $gymId); ?>
+          <input type="hidden" name="membresiaOrigenId" value="<?= \GymFlow\e((string)$renewing['_id']) ?>">
+          <input type="hidden" name="claveOperacion" value="<?= bin2hex(random_bytes(16)) ?>">
+
+          <label class="field">
+            <span>Socio</span>
+            <input type="text" readonly value="<?= \GymFlow\e($names[(string)$renewing['socioId']] ?? 'Socio') ?>">
+          </label>
+
+          <label class="field">
+            <span>Plan anterior</span>
+            <input type="text" readonly value="<?= \GymFlow\e($renewing['condicionesContratadas']['nombrePlan'] ?? 'Plan') ?>">
+          </label>
+
+          <?php if (!array_key_exists($previousPlanId, $renewPlanOptions)): ?>
+            <p class="hint">El plan anterior está inactivo. Seleccioná uno de los planes activos disponibles.</p>
+          <?php endif; ?>
+
+          <?php
+            \GymFlow\choice(
+                'Nuevo plan *',
+                'planId',
+                $renewPlanOptions,
+                $selectedRenewPlan
+            );
+
+            \GymFlow\field(
+                'Fecha de inicio *',
+                'fechaInicio',
+                $renewStartDate,
+                'date',
+                'required'
+            );
+
+            \GymFlow\choice(
+                'Método de pago *',
+                'metodo',
+                [
+                    'sinpe_movil' => 'SINPE Móvil',
+                    'efectivo' => 'Efectivo',
+                    'transferencia' => 'Transferencia'
+                ],
+                'sinpe_movil'
+            );
+
+            \GymFlow\field('Referencia del comprobante', 'referencia');
+            \GymFlow\area('Observaciones', 'observaciones');
+          ?>
+
+          <p class="hint">
+            El precio y la duración corresponden al plan seleccionado.
+            La nueva membresía y su pago se registran en una sola transacción.
+          </p>
+
+          <button class="btn primary" <?= !$renewPlanOptions ? 'disabled' : '' ?>>
+            Confirmar renovación y pago
+          </button>
+        </form>
+
+      <?php else: ?>
+        <div class="card-heading"><h3>Contratar membresía</h3></div>
+
+        <form method="post" class="stack">
+          <?php \GymFlow\hiddenAction('create-membership', $csrf, $gymId); ?>
+          <?php
+            $activeSocios = array_values(array_filter(
+                $socios,
+                fn($s) => ($s['estado'] ?? '') === 'activo'
+            ));
+            $activePlans = array_values(array_filter(
+                $plans,
+                fn($p) => ($p['estado'] ?? '') === 'activo'
+            ));
+
+            \GymFlow\choice(
+                'Socio *',
+                'socioId',
+                array_combine(
+                    array_map(fn($s) => (string)$s['_id'], $activeSocios),
+                    array_map(fn($s) => $s['nombreCompleto'], $activeSocios)
+                ) ?: []
+            );
+
+            \GymFlow\choice(
+                'Plan *',
+                'planId',
+                array_combine(
+                    array_map(fn($p) => (string)$p['_id'], $activePlans),
+                    array_map(
+                        fn($p) => $p['nombre'] . ' — ' . \GymFlow\money($p['precio']),
+                        $activePlans
+                    )
+                ) ?: []
+            );
+
+            \GymFlow\field('Fecha inicial *', 'fechaInicio', date('Y-m-d'), 'date', 'required');
+            \GymFlow\area('Observaciones', 'observaciones');
+          ?>
+
+          <p class="hint">
+            Para renovar una membresía existente, utilizá el botón Renovar
+            que aparece en el historial.
+          </p>
+
+          <button class="btn primary" <?= !$activeSocios || !$activePlans ? 'disabled' : '' ?>>
+            Crear membresía
+          </button>
+        </form>
+      <?php endif; ?>
+    </section>
+
+    <section class="card full-table">
+      <div class="card-heading"><h3>Historial de membresías</h3></div>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Socio / Plan</th>
+              <th>Inicio</th>
+              <th>Fin</th>
+              <th>Precio</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($members as $m): ?>
+              <tr>
+                <td>
+                  <strong><?= \GymFlow\e($names[(string)$m['socioId']] ?? 'Socio') ?></strong>
+                  <div class="subtext">
+                    <?= \GymFlow\e($m['condicionesContratadas']['nombrePlan'] ?? 'Plan') ?>
+                    <?php if (!empty($m['renovacionDe'])): ?> · Renovación<?php endif; ?>
+                  </div>
+                </td>
+                <td><?= \GymFlow\e(\GymFlow\shortDate($m['fechaInicio'])) ?></td>
+                <td><?= \GymFlow\e(\GymFlow\shortDate($m['fechaFin'])) ?></td>
+                <td><?= \GymFlow\money($m['condicionesContratadas']['precio']) ?></td>
+                <td>
+                  <?= \GymFlow\stateBadge(\GymFlow\memberState($m, isset($paidMap[(string)$m['_id']]))) ?>
+                </td>
+                <td>
+                  <div class="machine-actions">
+                    <?php
+                      $memberSocioKey = (string)$m['socioId'];
+                      $isLatestMembership =
+                          ($latestMembershipIds[$memberSocioKey] ?? '') === (string)$m['_id'];
+                    ?>
+
+                    <?php if (!$m['cancelada'] && $isLatestMembership && isset($paidMap[(string)$m['_id']])): ?>
+                      <a
+                        class="action-link"
+                        href="<?= \GymFlow\e(\GymFlow\href('membresias', $gymId, ['renew' => (string)$m['_id']])) ?>"
+                      >Renovar</a>
+                    <?php endif; ?>
+
+                    <?php if (!$m['cancelada']): ?>
+                      <form method="post" class="inline-form">
+                        <?php \GymFlow\hiddenAction('cancel-membership', $csrf, $gymId); ?>
+                        <input type="hidden" name="id" value="<?= \GymFlow\e((string)$m['_id']) ?>">
+                        <button class="danger-link" title="Conserva el historial">Cancelar</button>
+                      </form>
+                    <?php endif; ?>
+                  </div>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+
+            <?php if (!$members): ?>
+              <tr><td colspan="6" class="empty">Todavía no hay membresías.</td></tr>
+            <?php endif; ?>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
    <?php elseif ($page === 'maquinas'): ?>
   <div class="page-intro">
     <div><h2>Máquinas de <?= \GymFlow\e($gymName) ?></h2><p>Inventario propio de cada gimnasio. Registrá, buscá y administrá equipos.</p></div>
