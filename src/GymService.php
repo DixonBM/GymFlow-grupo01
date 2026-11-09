@@ -195,6 +195,266 @@ final class GymService
         ]);
         $this->invalidateGym($gym);
     }
+
+    public function renewMembershipAndPay(
+        ObjectId $gym,
+        array $u,
+        array $d
+    ): void {
+        $sourceId = Bootstrap::id(
+            Bootstrap::required($d, 'membresiaOrigenId', 'membresía anterior')
+        );
+
+        $planId = Bootstrap::id(
+            Bootstrap::required($d, 'planId', 'plan')
+        );
+
+        $method = (string)($d['metodo'] ?? '');
+
+        if (!in_array($method, ['efectivo', 'sinpe_movil', 'transferencia'], true)) {
+            throw new DomainError('Método de pago inválido.');
+        }
+
+        $key = Bootstrap::required($d, 'claveOperacion', 'clave de operación', 64);
+
+        if (!preg_match('/^[a-f0-9]{32}$/', $key)) {
+            throw new DomainError('Clave de operación inválida.');
+        }
+
+        $start = Bootstrap::localDate(
+            Bootstrap::required($d, 'fechaInicio', 'fecha de inicio')
+        );
+
+        $reference = Bootstrap::optional($d, 'referencia', 100);
+        $observations = Bootstrap::optional($d, 'observaciones', 500);
+
+        // La sesión debe pertenecer al mismo Manager que utiliza la conexión.
+        $session = $this->db->getManager()->startSession();
+
+        try {
+            $session->startTransaction();
+
+            // Evitar registrar dos renovaciones por un reenvío del formulario.
+            $duplicate = $this->db->pagos->findOne(
+                [
+                    'gimnasioId' => $gym,
+                    'claveOperacion' => $key
+                ],
+                ['session' => $session]
+            );
+
+            if ($duplicate) {
+                $existingRenewal = $this->db->membresias->findOne(
+                    [
+                        '_id' => $duplicate['membresiaId'],
+                        'gimnasioId' => $gym,
+                        'renovacionDe' => $sourceId
+                    ],
+                    ['session' => $session]
+                );
+
+                $session->abortTransaction();
+
+                if ($existingRenewal) {
+                    return;
+                }
+
+                throw new DomainError(
+                    'La clave de operación ya fue utilizada.'
+                );
+            }
+
+            // Obtener la membresía anterior.
+            $previous = $this->db->membresias->findOne(
+                [
+                    '_id' => $sourceId,
+                    'gimnasioId' => $gym
+                ],
+                ['session' => $session]
+            );
+
+            if (!$previous) {
+                throw new DomainError('La membresía anterior no existe.');
+            }
+
+            if (!empty($previous['cancelada'])) {
+                throw new DomainError('No se puede renovar una membresía cancelada.');
+            }
+
+            // Verificar que el socio siga activo.
+            $socio = $this->db->socios->findOne(
+                [
+                    '_id' => $previous['socioId'],
+                    'gimnasioId' => $gym,
+                    'estado' => 'activo'
+                ],
+                ['session' => $session]
+            );
+
+            if (!$socio) {
+                throw new DomainError('El socio no existe o está inactivo.');
+            }
+
+            // Obtener el nuevo plan seleccionado.
+            $plan = $this->db->planes->findOne(
+                [
+                    '_id' => $planId,
+                    'gimnasioId' => $gym,
+                    'estado' => 'activo'
+                ],
+                ['session' => $session]
+            );
+
+            if (!$plan) {
+                throw new DomainError('El plan seleccionado no existe o está inactivo.');
+            }
+
+            // La membresía anterior debe tener un pago efectivo.
+            $previousPayment = $this->db->pagos->findOne(
+                [
+                    'gimnasioId' => $gym,
+                    'membresiaId' => $previous['_id'],
+                    'estado' => 'registrado'
+                ],
+                ['session' => $session]
+            );
+
+            if (!$previousPayment) {
+                throw new DomainError(
+                    'La membresía anterior no tiene un pago registrado.'
+                );
+            }
+
+            // Solo se permite renovar desde la membresía más reciente.
+            $latest = $this->db->membresias->findOne(
+                [
+                    'gimnasioId' => $gym,
+                    'socioId' => $previous['socioId'],
+                    'cancelada' => false
+                ],
+                [
+                    'sort' => [
+                        'fechaFin' => -1,
+                        'fechaCreacion' => -1
+                    ],
+                    'session' => $session
+                ]
+            );
+
+            if (
+                !$latest ||
+                (string)$latest['_id'] !== (string)$previous['_id']
+            ) {
+                throw new DomainError(
+                    'Debés renovar desde la membresía más reciente del socio.'
+                );
+            }
+
+            // Si todavía está vigente, comenzar al finalizar el período anterior.
+            $previousEnd = $latest['fechaFin'];
+
+            if (
+                $previousEnd->toDateTime()->getTimestamp() >
+                $start->toDateTime()->getTimestamp()
+            ) {
+                $start = $previousEnd;
+            }
+
+            $end = Bootstrap::addDays(
+                $start,
+                (int)$plan['duracionDias']
+            );
+
+            // Evitar períodos superpuestos.
+            $overlap = $this->db->membresias->findOne(
+                [
+                    'gimnasioId' => $gym,
+                    'socioId' => $previous['socioId'],
+                    'cancelada' => false,
+                    'fechaInicio' => ['$lt' => $end],
+                    'fechaFin' => ['$gt' => $start]
+                ],
+                ['session' => $session]
+            );
+
+            if ($overlap) {
+                throw new DomainError(
+                    'El nuevo período se superpone con otra membresía.'
+                );
+            }
+
+            // 1. Crear una NUEVA membresía.
+            $membership = [
+                'gimnasioId' => $gym,
+                'socioId' => $previous['socioId'],
+                'planId' => $plan['_id'],
+
+                'condicionesContratadas' => [
+                    'nombrePlan' => $plan['nombre'],
+                    'duracionDias' => $plan['duracionDias'],
+                    'precio' => $plan['precio'],
+                    'moneda' => 'CRC'
+                ],
+
+                'fechaInicio' => $start,
+                'fechaFin' => $end,
+                'cancelada' => false,
+                'fechaCreacion' => Bootstrap::now(),
+                'observaciones' => $observations,
+
+                // Relación con la membresía anterior.
+                'renovacionDe' => $previous['_id']
+            ];
+
+            $inserted = $this->db->membresias->insertOne(
+                $membership,
+                ['session' => $session]
+            );
+
+            $newMembershipId = $inserted->getInsertedId();
+
+            // 2. Registrar el pago asociado a la nueva membresía.
+            $this->db->pagos->insertOne(
+                [
+                    'gimnasioId' => $gym,
+                    'membresiaId' => $newMembershipId,
+                    'fechaPago' => Bootstrap::now(),
+                    'monto' => $plan['precio'],
+                    'moneda' => 'CRC',
+                    'metodo' => $method,
+                    'referencia' => $reference,
+                    'claveOperacion' => $key,
+                    'registradoPor' => $u['_id'],
+                    'estado' => 'registrado',
+                    'observaciones' => $observations
+                ],
+                ['session' => $session]
+            );
+
+            // Confirmar ambas operaciones juntas.
+            $session->commitTransaction();
+
+        } catch (\Throwable $e) {
+
+            // Si algo falla, revertir los cambios.
+            try {
+                if ($session->isInTransaction()) {
+                    $session->abortTransaction();
+                }
+            } catch (\Throwable $rollbackError) {
+                error_log('Error revirtiendo renovación: ' . $rollbackError->getMessage());
+            }
+
+            throw $e;
+
+        } finally {
+            $session->endSession();
+        }
+
+        // Invalidar Redis únicamente después de confirmar la transacción.
+        $this->invalidateGym($gym);
+    }
+
     public function cancelMembership(ObjectId $gym, string $id): void
     {
         $m = $this->scoped('membresias', $gym, $id);
