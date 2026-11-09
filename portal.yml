@@ -1,0 +1,21 @@
+nombre: GymFlow
+resumen: >-
+  Aplicación web de código abierto para gestionar varios gimnasios desde un
+  mismo sistema. Permite administrar socios, planes, membresías, pagos
+  manuales e inventario de máquinas.
+problema: >-
+  Los gimnasios pequeños suelen llevar el control de sus socios, vencimientos
+  y cobros en registros dispersos. GymFlow centraliza esa información y
+  separa los datos de cada gimnasio.
+usuarios: Superadministradores de la plataforma y administradores de gimnasios
+motores: [MongoDB, Redis]
+lenguaje: PHP
+licencia: MIT
+repositorio: https://github.com/DixonBM/GymFlow-grupo01
+demo_video:
+demo_url: https://grupo1.crnube.org/gymflow/
+captura: docs/evidencias/S3/26-redis-dashboard-recuperado-hit.png
+grupo: 1
+dia: viernes
+periodo: II-2026
+autores_publicos: []
