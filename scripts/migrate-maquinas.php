@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-
+//mejoras de autoamizar procesos
 use GymFlow\Bootstrap;
 use GymFlow\MachineSchema;
 
