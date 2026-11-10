@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-
+//mejoras en este modulo dixon bustos
 use GymFlow\Bootstrap;
 use GymFlow\GymService;
 use GymFlow\ReportCache;
