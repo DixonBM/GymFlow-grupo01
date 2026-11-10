@@ -6,6 +6,7 @@ use GymFlow\ReportCache;
 require dirname(__DIR__) . '/src/Bootstrap.php';
 require dirname(__DIR__) . '/vendor/autoload.php';
 require dirname(__DIR__) . '/src/ReportCache.php';
+//implementacion de la gestion de maquinas
 require dirname(__DIR__) . '/src/GymService.php';
 Bootstrap::env(dirname(__DIR__) . '/.env');
 $db = Bootstrap::db();
