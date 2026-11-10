@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-
+// mejoras dixon bustos la parte de los routes para la autoamtiazacion de las consultas
 use GymFlow\Bootstrap;
 use GymFlow\DomainError;
 use GymFlow\GymService;
