@@ -12,7 +12,7 @@ motores: [MongoDB, Redis]
 lenguaje: PHP
 licencia: MIT
 repositorio: https://github.com/DixonBM/GymFlow-grupo01
-demo_video:
+demo_video:https://youtu.be/l7KlEOZn9FA
 demo_url: https://grupo1.crnube.org/gymflow/
 captura: docs/evidencias/S3/26-redis-dashboard-recuperado-hit.png
 grupo: 1
